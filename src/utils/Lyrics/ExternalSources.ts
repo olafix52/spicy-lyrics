@@ -1176,90 +1176,47 @@ function parseLRCLikeLyrics(text: string): {
   };
 }
 
-async function fetchLRCLIBLyrics(
+function parseLRCLIBItemToLyrics(
+  body: any,
   trackInfo: TrackLyricsInfo
-): Promise<ExternalLyricsResult | null> {
-  try {
-    const headers = {
-      "x-user-agent": `spicetify v${Spicetify.Config?.version || "1.0.0"} (https://github.com/spicetify/cli)`,
+): ExternalLyricsResult | null {
+  if (!body) return null;
+
+  if (body?.instrumental) {
+    const instrumentalLyrics = buildStaticLyrics(
+      ["♪ Instrumental ♪"],
+      "lrclib",
+      "LRCLIB"
+    );
+    if (!instrumentalLyrics) return null;
+
+    return {
+      lyrics: {
+        ...instrumentalLyrics,
+        fetchProvider: "lrclib",
+      },
+      status: 200,
     };
+  }
 
-    const cleanTitle = removeExtraInfo(removeSongFeat(normalizeText(trackInfo.title)));
-    const cleanArtist = normalizeText(trackInfo.artist);
-
-    // 1. Try exact /api/get with all metadata
-    const exactGetUrl = `https://lrclib.net/api/get?${[
-      ["track_name", trackInfo.title],
-      ["artist_name", trackInfo.artist],
-      ["album_name", trackInfo.album],
-      ["duration", String(trackInfo.durationMs / 1000)],
-    ]
-      .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
-      .join("&")}`;
-
-    let body: any = null;
-    let response = await fetch(exactGetUrl, { headers });
-
-    if (response.ok) {
-      body = await response.json();
-    } else {
-      // 2. Try relaxed /api/get with track_name and artist_name
-      const relaxedGetUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(
-        cleanTitle
-      )}&artist_name=${encodeURIComponent(cleanArtist)}`;
-      response = await fetch(relaxedGetUrl, { headers });
-      if (response.ok) {
-        body = await response.json();
-      } else {
-        // 3. Try /api/search fallback
-        const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(
-          `${cleanTitle} ${cleanArtist}`
-        )}`;
-        response = await fetch(searchUrl, { headers });
-        if (response.ok) {
-          const results = await response.json();
-          if (Array.isArray(results) && results.length > 0) {
-            const trackDurationSec = trackInfo.durationMs / 1000;
-            body =
-              results.find(
-                (item: any) =>
-                  item?.duration &&
-                  Math.abs(Number(item.duration) - trackDurationSec) < 4
-              ) ??
-              results.find(
-                (item: any) =>
-                  normalizeText(item?.trackName) === normalizeText(cleanTitle) &&
-                  normalizeText(item?.artistName) === normalizeText(cleanArtist)
-              ) ??
-              results[0];
-          }
-        }
-      }
-    }
-
-    if (!body) {
-      return null;
-    }
-    if (body?.instrumental) {
-      const instrumentalLyrics = buildStaticLyrics(
-        ["♪ Instrumental ♪"],
-        "lrclib",
-        "LRCLIB"
-      );
-      if (!instrumentalLyrics) return null;
-
+  const rawLyricsFile = body?.lyricsFile ?? body?.lyricsfile ?? body?.lyrics_file;
+  if (typeof rawLyricsFile === "string" && isLyricsfile(rawLyricsFile)) {
+    const parsedLyrics = parseLyricsfileToLyrics(rawLyricsFile);
+    if (parsedLyrics) {
       return {
         lyrics: {
-          ...instrumentalLyrics,
+          ...parsedLyrics,
           fetchProvider: "lrclib",
+          sourceDisplayName: "LRCLIB",
         },
         status: 200,
       };
     }
+  }
 
-    const rawLyricsFile = body?.lyricsFile ?? body?.lyricsfile ?? body?.lyrics_file;
-    if (typeof rawLyricsFile === "string" && isLyricsfile(rawLyricsFile)) {
-      const parsedLyrics = parseLyricsfileToLyrics(rawLyricsFile);
+  if (typeof body?.syncedLyrics === "string") {
+    if (isLyricsfile(body.syncedLyrics)) {
+      const parsedLyrics = parseLyricsfileToLyrics(body.syncedLyrics);
       if (parsedLyrics) {
         return {
           lyrics: {
@@ -1272,55 +1229,143 @@ async function fetchLRCLIBLyrics(
       }
     }
 
-    if (typeof body?.syncedLyrics === "string") {
-      if (isLyricsfile(body.syncedLyrics)) {
-        const parsedLyrics = parseLyricsfileToLyrics(body.syncedLyrics);
-        if (parsedLyrics) {
-          return {
-            lyrics: {
-              ...parsedLyrics,
-              fetchProvider: "lrclib",
-              sourceDisplayName: "LRCLIB",
-            },
-            status: 200,
-          };
-        }
-      }
-
-      const parsed = parseLRCLikeLyrics(body.syncedLyrics);
-      if (parsed.synced) {
-        const lineLyrics = buildLineLyrics(
-          parsed.synced,
-          trackInfo.durationMs,
-          "lrclib",
-          "LRCLIB"
-        );
-        if (lineLyrics) {
-          return {
-            lyrics: {
-              ...lineLyrics,
-              fetchProvider: "lrclib",
-            },
-            status: 200,
-          };
-        }
-      }
-    }
-
-    if (typeof body?.plainLyrics === "string") {
-      const plainLines = body.plainLyrics
-        .split(/\r?\n/)
-        .map((line: string) => line.trim())
-        .filter(Boolean);
-      const staticLyrics = buildStaticLyrics(plainLines, "lrclib", "LRCLIB");
-      if (staticLyrics) {
+    const parsed = parseLRCLikeLyrics(body.syncedLyrics);
+    if (parsed.synced) {
+      const lineLyrics = buildLineLyrics(
+        parsed.synced,
+        trackInfo.durationMs,
+        "lrclib",
+        "LRCLIB"
+      );
+      if (lineLyrics) {
         return {
           lyrics: {
-            ...staticLyrics,
+            ...lineLyrics,
             fetchProvider: "lrclib",
           },
           status: 200,
         };
+      }
+    }
+  }
+
+  if (typeof body?.plainLyrics === "string") {
+    const plainLines = body.plainLyrics
+      .split(/\r?\n/)
+      .map((line: string) => line.trim())
+      .filter(Boolean);
+    const staticLyrics = buildStaticLyrics(plainLines, "lrclib", "LRCLIB");
+    if (staticLyrics) {
+      return {
+        lyrics: {
+          ...staticLyrics,
+          fetchProvider: "lrclib",
+        },
+        status: 200,
+      };
+    }
+  }
+
+  return null;
+}
+
+async function fetchLRCLIBLyrics(
+  trackInfo: TrackLyricsInfo
+): Promise<ExternalLyricsResult | null> {
+  try {
+    const headers = {
+      "x-user-agent": `spicetify v${Spicetify.Config?.version || "1.0.0"} (https://github.com/spicetify/cli)`,
+    };
+
+    const cleanTitle = removeExtraInfo(removeSongFeat(normalizeText(trackInfo.title)));
+    const cleanArtist = normalizeText(trackInfo.artist);
+    const trackDurationSec = trackInfo.durationMs / 1000;
+
+    // 1. Search in parallel with exact /api/get
+    const searchUrl = `https://lrclib.net/api/search?q=${encodeURIComponent(
+      `${cleanTitle} ${cleanArtist}`
+    )}`;
+    const searchPromise = fetch(searchUrl, { headers })
+      .then((r) => (r.ok ? r.json() : []))
+      .catch(() => []);
+
+    const exactGetUrl = `https://lrclib.net/api/get?${[
+      ["track_name", trackInfo.title],
+      ["artist_name", trackInfo.artist],
+      ["album_name", trackInfo.album],
+      ["duration", String(trackDurationSec)],
+    ]
+      .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+      .join("&")}`;
+    const getPromise = fetch(exactGetUrl, { headers })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+
+    const [searchResults, getBody] = await Promise.all([searchPromise, getPromise]);
+
+    // 2. If any search candidate provides word-synced Syllable lyrics, prioritize it immediately!
+    if (Array.isArray(searchResults) && searchResults.length > 0) {
+      const candidates = searchResults.filter((item: any) => {
+        const itemTitle = normalizeText(item?.trackName);
+        const itemArtist = normalizeText(item?.artistName);
+        const tMatch = itemTitle.includes(cleanTitle) || cleanTitle.includes(itemTitle);
+        const aMatch = itemArtist.includes(cleanArtist) || cleanArtist.includes(itemArtist);
+        return tMatch && aMatch;
+      });
+
+      for (const item of candidates) {
+        const parsed = parseLRCLIBItemToLyrics(item, trackInfo);
+        if (parsed?.lyrics?.Type === "Syllable") {
+          return parsed;
+        }
+      }
+
+      for (const item of searchResults) {
+        if (
+          Math.abs(Number(item?.duration ?? 0) - trackDurationSec) < 5 &&
+          normalizeText(item?.trackName).includes(cleanTitle)
+        ) {
+          const parsed = parseLRCLIBItemToLyrics(item, trackInfo);
+          if (parsed?.lyrics?.Type === "Syllable") {
+            return parsed;
+          }
+        }
+      }
+    }
+
+    // 3. Exact get result if available
+    if (getBody) {
+      const parsed = parseLRCLIBItemToLyrics(getBody, trackInfo);
+      if (parsed) return parsed;
+    }
+
+    // 4. Relaxed /api/get fallback
+    const relaxedGetUrl = `https://lrclib.net/api/get?track_name=${encodeURIComponent(
+      cleanTitle
+    )}&artist_name=${encodeURIComponent(cleanArtist)}`;
+    try {
+      const relaxedRes = await fetch(relaxedGetUrl, { headers });
+      if (relaxedRes.ok) {
+        const relaxedBody = await relaxedRes.json();
+        const parsed = parseLRCLIBItemToLyrics(relaxedBody, trackInfo);
+        if (parsed) return parsed;
+      }
+    } catch {}
+
+    // 5. Fallback to duration-matched or first search result
+    if (Array.isArray(searchResults) && searchResults.length > 0) {
+      const durationMatched = searchResults.find(
+        (item: any) =>
+          item?.duration && Math.abs(Number(item.duration) - trackDurationSec) < 4
+      );
+      if (durationMatched) {
+        const parsed = parseLRCLIBItemToLyrics(durationMatched, trackInfo);
+        if (parsed) return parsed;
+      }
+
+      for (const item of searchResults) {
+        const parsed = parseLRCLIBItemToLyrics(item, trackInfo);
+        if (parsed) return parsed;
       }
     }
 
