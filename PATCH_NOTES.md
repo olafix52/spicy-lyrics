@@ -1,3 +1,19 @@
+## v100.10.39
+
+- **Updated to be inline with 6.3.12 to follow API changes**
+
+- Add settings hiding, with a manager, restore controls, live edits, and search access.
+
+- Remove the nonfunctional Timeline Outside Media Box option.
+
+- Fixed brief white flash on next active lyric line during low frame rates.
+
+- **Unique Word Filters**
+  Added `Gibberish`, `all lowercase`, `ALL UPPERCASE`, and `Off`.
+
+- **Settings layout**
+  Moved Space Gravity and Unique Word Filters to top of Lyrics Display. Dropdowns now size left for longer options.
+
 ## v100.10.38
 
 - Updated to be inline with 6.3.10

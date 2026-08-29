@@ -106,7 +106,6 @@ const ScaleDamping = 0.64;
 const ScaleFrequency = 0.88;
 const GlowDamping = 0.56;
 const GlowFrequency = 1.18;
-const AnimationResponseLeadMs = 67;
 
 const getDotOpacityRange = (simpleLyricsMode: boolean) => [
   // Controls element opacity
@@ -443,7 +442,7 @@ setOnNewElementMounted(() => {
 });
 
 export function findActiveElement(currentTime: number): any {
-  const ProcessedPosition = currentTime + timeOffset + AnimationResponseLeadMs;
+  const ProcessedPosition = currentTime + timeOffset;
   const CurrentLyricsType = $currentLyricsType.get();
 
   if (!CurrentLyricsType || CurrentLyricsType === "None") return null;
@@ -533,7 +532,7 @@ function getProgressPercentage(currentTime: number, startTime: number, endTime: 
 let lastAnimateFrameTime = 0;
 
 export function Animate(position: number): void {
-  const ProcessedPosition = position + timeOffset + AnimationResponseLeadMs;
+  const ProcessedPosition = position + timeOffset - ($simpleLyricsMode.get() ? 33.5 : 0);
 
   const now = performance.now();
 
